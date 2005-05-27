@@ -39,12 +39,13 @@ def error(msg):
 
 class Configuration:
     def __init__(self, cfiles):
-        self.__HOST = 'host'
-        self.__PORT = 'port'
-        self.__USERNAME = 'username'
-        self.__PASSWORD = 'password'
-        self.__MAILDIR = 'maildir'
+        self.__IMAPHOST = 'imapserver'
+        self.__IMAPPORT = 'imapport'
+        self.__IMAPUSER = 'imapuser'
+        self.__IMAPPASSWORD = 'imappassword'
         self.__IMAPFILTER = 'imapfilter'
+        self.__IMAPSSL = 'imapssl'
+        self.__MAILDIR = 'maildir'
         
         self.__cparser = ConfigParser.ConfigParser()
 
@@ -54,43 +55,74 @@ class Configuration:
         self.__cparser.read(map(expand_user, cfiles))
 
     def get_accounts(self):
+        """Return list of all accounts.
+        """
         return self.__cparser.sections()
 
     def get_host(self, account):
+        """Return imap host.
+        """
         try:
-            return self.__cparser.get(account, self.__HOST)
+            return self.__cparser.get(account, self.__IMAPHOST)
         except:
             error('host for account %s not configured!' % account)
 
     def get_port(self, account):
+        """Return optional imap port.
+
+        default return value: 993
+        """
         try:
-            return int(self.__cparser.get(account, self.__PORT))
+            return int(self.__cparser.get(account, self.__IMAPPORT))
         except:
-            error('port for account %s not configured!' % account)
+            return 993
 
     def get_username(self, account):
+        """Return imap username.
+        """
         try:
-            return self.__cparser.get(account, self.__USERNAME)
+            return self.__cparser.get(account, self.__IMAPUSER)
         except:
             error('username for account %s not configured!' % account)
 
     def get_password(self, account):
+        """Return imap password.
+        """
         try:
-            return self.__cparser.get(account, self.__PASSWORD)
+            return self.__cparser.get(account, self.__IMAPPASSWORD)
         except:
             error('password for account %s not configured!' % account)
 
     def get_maildir(self, account):
+        """Return maildir path.
+        """
         try:
             return self.__cparser.get(account, self.__MAILDIR)
         except:
             error('maildir for account %s not configured!' % account)
 
     def get_imapfilter(self, account):
+        """Return optional imap filter string.
+
+        default return value: None
+        """
         try:
             return self.__cparser.get(account, self.__IMAPFILTER)
         except:
             return None
+
+    def use_imapssl(self, account):
+        """Return True or False for optional parameter 'imapssl'.
+
+        default return value: True
+        """
+        try:
+            if str.lower(self.__cparser.get(account, self.__IMAPSSL)) == 'false':
+                return False
+            else:
+                return True
+        except:
+            return True
 
 class Utils:
     def __init__(self):
@@ -173,20 +205,23 @@ class Utils:
 
 
 class IMAP:
-    def __init__(self, host=None, port=None, user=None, password=None):
+    def __init__(self, host=None, port=None, user=None, password=None, ssl=True):
         self.__connection = None
         self.__regex_folderstr = re.compile('^\((.*)\) +"(.*)" +"(.*)"$')
         self.__regex_uid = re.compile('UID (.*) BODY')
         self.__regex_flags = re.compile('FLAGS (.*) BODY')
 
         if host and port and user and password:
-            self.open(host, port, user, password)
+            self.open(host, port, user, password, ssl)
 
-    def open(self, host, port, user, password):
+    def open(self, host, port, user, password, ssl=True):
         """Try to open the imap connection.
         """
         try:
-            self.__connection = imaplib.IMAP4_SSL(host, port)
+            if ssl:
+                self.__connection = imaplib.IMAP4_SSL(host, port)
+            else:
+                self.__connection = imaplib.IMAP4(host, port)
             self.__connection.login(user, password)
         except Exception, e:
             error('can not connect to \'%s:%d\': %s' % (host, port, str(e)))
@@ -455,7 +490,8 @@ class Worker:
         imap = IMAP(self.__config.get_host(account),
                     self.__config.get_port(account),
                     self.__config.get_username(account),
-                    self.__config.get_password(account))
+                    self.__config.get_password(account),
+                    self.__config.use_imapssl(account))
 
         filter = self.__config.get_imapfilter(account)
         for folder in imap.get_folders(filter):
@@ -492,5 +528,5 @@ class Worker:
 if __name__ == "__main__":
     cfg = Configuration('~/work/imapbackup/imapbackuprc')
     w = Worker(cfg)
-    w.backup_all()
+    # w.backup_all()
     # w.list_imap_folders('')

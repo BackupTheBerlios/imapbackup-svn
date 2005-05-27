@@ -10,21 +10,28 @@
 #
 # imapbackup can handle multiple accounts. each account has a
 # section with a unique name. for each account, the
-#    host, port, user, password, maildir
+#    - imapserver     imap server
+#    - imapuser       imap user
+#    - imappassword   imap password
+#    - maildir        path to the maildir
 # entries must be given. 
-# other entries like imapfilter are optional.
+# other entries are optional:
+#    - imapport       imap port (default: 993)
+#    - imapssl        use imap ssl (default: true)
+#    - imapfilter     filter imap folders (default: no filtering)
 
 [account 1]
-host: imap.server
-port: 993
-username: username
-password: secret
-maildir: ~/Maildir
-imapfilter: ^INBOX
+imapserver:     imap.server
+imapuser:       username
+imappassword:   secret
+imapfilter:     ^INBOX
+maildir:        ~/Maildir_1
 
-[account 2]
-host: another.host
-port: 996
-username: username_2
-password: terces
-maildir: ~/Maildir_2
+[account 2 (outbox only)]
+imapserver:     another.server
+imapport:       143
+imapuser:       username_2
+imappassword:   terces
+imapssl:        false
+imapfilter:     outbox
+maildir:        ~/Maildir_2
