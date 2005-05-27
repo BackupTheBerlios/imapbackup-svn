@@ -1,0 +1,7 @@
+,----
+| TODO
+`----
+  - a lot more docu ;)
+  - -c --config-file   read from given config file
+  - -l --list-folders  list imap folders
+  - --log-level        set log level (info, warn, error, none)

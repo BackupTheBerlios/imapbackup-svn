@@ -18,18 +18,11 @@
 # 
 # $Id$
 
-# TODO
-#  - more doku ;)
-#  - ~/.imapbackuprc    config file
-#  - -c --config-file   read from given config file
-#  - -l --list-folders  list imap folders
-#  - --log-level        set log level (info, warn, error, none)
-#
-
 import os, sys
 import socket, imaplib
 import time, sha, types
 import string, re
+import ConfigParser
 
 verbose = True
 message_deliver_count = 0
@@ -43,6 +36,61 @@ def warn(msg):
 
 def error(msg):
     sys.exit('error: ' + str(msg))
+
+class Configuration:
+    def __init__(self, cfiles):
+        self.__HOST = 'host'
+        self.__PORT = 'port'
+        self.__USERNAME = 'username'
+        self.__PASSWORD = 'password'
+        self.__MAILDIR = 'maildir'
+        self.__IMAPFILTER = 'imapfilter'
+        
+        self.__cparser = ConfigParser.ConfigParser()
+
+        if type(cfiles) != types.ListType: cfiles = [cfiles]
+        def expand_user(path): return os.path.expanduser(path)
+
+        self.__cparser.read(map(expand_user, cfiles))
+
+    def get_accounts(self):
+        return self.__cparser.sections()
+
+    def get_host(self, account):
+        try:
+            return self.__cparser.get(account, self.__HOST)
+        except:
+            error('host for account %s not configured!' % account)
+
+    def get_port(self, account):
+        try:
+            return int(self.__cparser.get(account, self.__PORT))
+        except:
+            error('port for account %s not configured!' % account)
+
+    def get_username(self, account):
+        try:
+            return self.__cparser.get(account, self.__USERNAME)
+        except:
+            error('username for account %s not configured!' % account)
+
+    def get_password(self, account):
+        try:
+            return self.__cparser.get(account, self.__PASSWORD)
+        except:
+            error('password for account %s not configured!' % account)
+
+    def get_maildir(self, account):
+        try:
+            return self.__cparser.get(account, self.__MAILDIR)
+        except:
+            error('maildir for account %s not configured!' % account)
+
+    def get_imapfilter(self, account):
+        try:
+            return self.__cparser.get(account, self.__IMAPFILTER)
+        except:
+            return None
 
 class Utils:
     def __init__(self):
@@ -125,11 +173,14 @@ class Utils:
 
 
 class IMAP:
-    def __init__(self):
+    def __init__(self, host=None, port=None, user=None, password=None):
         self.__connection = None
         self.__regex_folderstr = re.compile('^\((.*)\) +"(.*)" +"(.*)"$')
         self.__regex_uid = re.compile('UID (.*) BODY')
         self.__regex_flags = re.compile('FLAGS (.*) BODY')
+
+        if host and port and user and password:
+            self.open(host, port, user, password)
 
     def open(self, host, port, user, password):
         """Try to open the imap connection.
@@ -224,10 +275,11 @@ class IMAP:
 
 
 class Maildir:
-    def __init__(self):
+    def __init__(self, basedir=None, create=False):
         self.__basedir=''
         self.__sha1_header_cache={}
-
+        if basedir:
+            self.open(basedir, create)
 
     def open(self, basedir, create=False):
         """Open the maildir folder and index all existing messages.
@@ -392,42 +444,53 @@ class Maildir:
         return ret
 
 class Worker:
-    def __init__(self, maildir, imap):
-        self.__maildir = maildir
-        self.__imap = imap
+    def __init__(self, config):
+        self.__config = config
 
-    def list_imap_folders(self, filter=None):
-        for folder in self.__imap.get_folders(filter):
+    def backup_all(self):
+        for account in self.__config.get_accounts():
+            self.backup(account)
+
+    def list_imap_folders(self, account):
+        imap = IMAP(self.__config.get_host(account),
+                    self.__config.get_port(account),
+                    self.__config.get_username(account),
+                    self.__config.get_password(account))
+
+        filter = self.__config.get_imapfilter(account)
+        for folder in imap.get_folders(filter):
             print '-> %s' % folder
 
-    def backup(self):
+    def backup(self, account):
         utils = Utils()
-        for folder in self.__imap.get_folders():
-            # create folder if needed
-            cf = self.__maildir.create_folder(folder)
         
-            mlist = self.__imap.get_messages(folder)
+        maildir = Maildir(self.__config.get_maildir(account), True)
+        imap = IMAP(self.__config.get_host(account),
+                    self.__config.get_port(account),
+                    self.__config.get_username(account),
+                    self.__config.get_password(account))
+        
+        for folder in imap.get_folders():
+            # create folder if needed
+            cf = maildir.create_folder(folder)
+        
+            mlist = imap.get_messages(folder)
             for uid, hhd in mlist.iteritems():
-                has_msg = self.__maildir.has_message_header(folder, hhd)
+                has_msg = maildir.has_message_header(folder, hhd)
                 if cf or not has_msg:
                     # folder was newly created and header not in maildir index
                     # so save message
-                    flags, body = self.__imap.get_message(folder, uid)
-                    self.__maildir.write_message(folder, body, flags)
+                    flags, body = imap.get_message(folder, uid)
+                    maildir.write_message(folder, body, flags)
                 else:
-                    self.__maildir.remove_from_index(folder, hhd)
+                    maildir.remove_from_index(folder, hhd)
 
-        for fname in self.__maildir.get_leftover_messages():
+        for fname in maildir.get_leftover_messages():
             info('[Worker] remove message "%s"' % fname)
             os.remove(fname)
 
 if __name__ == "__main__":
-    md = Maildir()
-    md.open(sys.argv[1], True)
-
-    imap = IMAP()
-    imap.open('hhhh', 993, 'uuuu', 'pppp')
-    
-    w = Worker(md, imap)
-    # w.backup()
-    w.list_imap_folders('^INBOX')
+    cfg = Configuration('~/work/imapbackup/imapbackuprc')
+    w = Worker(cfg)
+    w.backup_all()
+    # w.list_imap_folders('')

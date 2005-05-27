@@ -1,0 +1,30 @@
+# $Id$
+#
+# this file contains configuration examples for imapbackup.
+#
+# the configuration file consists of sections, led by a 
+# "[section]" header and followed by "name: value" entries.
+# note that leading whitespace is removed from values.
+# lines beginning with "#" or ";" are ignored and may be used
+# to provide comments.
+#
+# imapbackup can handle multiple accounts. each account has a
+# section with a unique name. for each account, the
+#    host, port, user, password, maildir
+# entries must be given. 
+# other entries like imapfilter are optional.
+
+[account 1]
+host: imap.server
+port: 993
+username: username
+password: secret
+maildir: ~/Maildir
+imapfilter: ^INBOX
+
+[account 2]
+host: another.host
+port: 996
+username: username_2
+password: terces
+maildir: ~/Maildir_2
