@@ -322,7 +322,7 @@ class Maildir:
         If 'create' is true and 'basedir' is no maildir, than an new 
         maildir will be created.
         """
-        self.__basedir = basedir
+        self.__basedir = os.path.expanduser(basedir)
         if create == True:
             if not os.path.isdir(self.__basedir):
                 os.mkdir(self.__basedir)
@@ -506,7 +506,8 @@ class Worker:
                     self.__config.get_username(account),
                     self.__config.get_password(account))
         
-        for folder in imap.get_folders():
+        fo_filter = self.__config.get_imapfilter(account)
+        for folder in imap.get_folders(fo_filter):
             # create folder if needed
             cf = maildir.create_folder(folder)
         
