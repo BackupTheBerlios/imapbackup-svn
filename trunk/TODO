@@ -8,3 +8,5 @@
     - --log-level        set log level (info, warn, error, none)
   - maildir write should move existing file from 'new' to 'cur' and
     fix flags in the filename
+  - add threading
+  - remove maildir directories, which are deleted in the imap box
