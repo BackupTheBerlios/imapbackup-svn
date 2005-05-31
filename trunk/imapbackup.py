@@ -29,6 +29,7 @@ import string
 import re
 import ConfigParser
 import logging, logging.handlers
+import getopt
 
 message_deliver_count = 0
 
@@ -628,10 +629,58 @@ class Maildir:
 
 # ----------------------------------------------------------------------------
 class Worker:
-    def __init__(self, config):
-        self.__config = config
+    def __init__(self):
+        self.__config = None
+        self.__config_file = '~/.imapbackuprc'
+        self.__list_folders = False
+        self.__account = 'all'
+
+        self.__parse_cmdl()
+        self.__init_config()
+
+    def __show_syntax(self):
+        print('imapbackup.py [options]')
+        print('   options:')
+        print('     -h --help            print this message')
+        print('     -a --account         select an account (def: all)')
+        print('     -c --config-file     use another config file (def: ~/.imapbackuprc)')
+        print('     -l --list-folders    list folders in selected accounts')
+
+    def __parse_cmdl(self):
+        """
+        """
+        try:
+            opts, args = getopt.getopt(sys.argv[1:], \
+                "ha:c:l:", \
+                ["help", "account=", "config-file=", "list-folders"])
+        except getopt.GetoptError, e:
+            print('error: %s' % e)
+            self.__show_syntax()
+            sys.exit(2)
+        for opt, arg in opts:
+            if opt in ("-h", "--help"):
+                self.__show_syntax()
+                sys.exit(3)
+            elif opt in ("-a", "--account"):
+                self.__account = arg
+            elif opt in ("-c", "--config-file"):
+                self.__config_file = arg
+            elif opt in ("-l", "--list-folders"):
+                self.__list_folders = True
+
+    def __init_config(self):
+        """Initialize the configuration.
+        """
+        self.__config_file = os.path.expanduser(self.__config_file)
+        if os.path.isfile(self.__config_file):
+            self.__config = Configuration(self.__config_file)
+        else:
+            print('can not open config file: %s' % self.__config_file)
+            sys.exit(-1)
 
     def __config_logger(self, account):
+        """Configures the logger singelton for the given account.
+        """
         Log().remove_all_handlers()
         for logger in self.__config.get_logger(account).split(', '):
             if str.lower(logger) == 'syslog':
@@ -640,10 +689,21 @@ class Worker:
                 Log().log_to_file(self.__config.get_log_file(account))
         Log().set_log_level(self.__config.get_log_level(account))
 
-    def backup_all(self):
+    def run(self):
+        if self.__list_folders:
+            if str.lower(self.__account) == 'all':
+                self.list_all_imap_folders()
+            else:
+                self.list_imap_folders(self.__account)
+        else:
+            if str.lower(self.__account) == 'all':
+                self.backup_all()
+            else:
+                self.backup(self.__account)
+
+    def list_all_imap_folders(self):
         for account in self.__config.get_accounts():
-            self.__config_logger(account)
-            self.backup(account)
+            self.list_imap_folders(account)
 
     def list_imap_folders(self, account):
         try:
@@ -655,15 +715,22 @@ class Worker:
                         self.__config.use_imapssl(account))
 
             filter = self.__config.get_imapfilter(account)
+            print('[%s]' % account)
             for folder in imap.get_folders(filter):
                 print '-> %s' % folder
+            print
         except IMAPException, e:
             Log().error('imap error: ' % e)
-        except:
+        except Exception, e:
             Log().error('error: ' % e)
+
+    def backup_all(self):
+        for account in self.__config.get_accounts():
+            self.backup(account)
 
     def backup(self, account):
         try:
+            self.__config_logger(account)
             maildir = Maildir(self.__config.get_maildir(account), True)
             imap = IMAP(self.__config.get_host(account),
                         self.__config.get_port(account),
@@ -689,13 +756,10 @@ class Worker:
             maildir.remove_leftover_messages()
         except IMAPException, e:
             Log().error('imap error: ' % e)
-        except:
+        except Exception, e:
             Log().error('error: ' % e)
 
 
 # ----------------------------------------------------------------------------
 if __name__ == "__main__":
-    cfg = Configuration('~/work/imapbackup/imapbackuprc')
-    w = Worker(cfg)
-    w.backup_all()
-    # w.list_imap_folders('')
+    Worker().run()
