@@ -40,7 +40,7 @@ class Log:
 
     def __init__(self):
         self.__logger = logging.getLogger('imapbackup')
-        self.__formatter = logging.Formatter('%(asctime)s %(message)s')
+        self.__formatter = logging.Formatter('imapbackup: %(message)s')
         self.__handlers = []
 
     def __add_handler(self, handler):
@@ -82,7 +82,8 @@ class Log:
         """
         if exclusive:
             self.remove_all_handlers()
-        handler = logging.handlers.SysLogHandler()
+        handler = logging.handlers.SysLogHandler(address='/dev/log',\
+            facility=logging.handlers.SysLogHandler.LOG_SYSLOG)
         handler.setFormatter(self.__formatter)
         self.__add_handler(handler)
 
@@ -651,7 +652,7 @@ class Worker:
         """
         try:
             opts, args = getopt.getopt(sys.argv[1:], \
-                "ha:c:l:", \
+                "ha:c:l", \
                 ["help", "account=", "config-file=", "list-folders"])
         except getopt.GetoptError, e:
             print('error: %s' % e)
@@ -681,13 +682,13 @@ class Worker:
     def __config_logger(self, account):
         """Configures the logger singelton for the given account.
         """
+        Log().set_log_level(self.__config.get_log_level(account))
         Log().remove_all_handlers()
         for logger in self.__config.get_logger(account).split(', '):
             if str.lower(logger) == 'syslog':
                 Log().log_to_syslog()
             elif str.lower(logger) == 'file':
                 Log().log_to_file(self.__config.get_log_file(account))
-        Log().set_log_level(self.__config.get_log_level(account))
 
     def run(self):
         if self.__list_folders:
