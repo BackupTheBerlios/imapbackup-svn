@@ -30,6 +30,7 @@ import re
 import ConfigParser
 import logging, logging.handlers
 import getopt
+import threading
 
 message_deliver_count = 0
 
@@ -40,7 +41,8 @@ class Log:
 
     def __init__(self):
         self.__logger = logging.getLogger('imapbackup')
-        self.__formatter = logging.Formatter('imapbackup: %(message)s')
+        self.__syslog_formatter = logging.Formatter('%(name)s: [%(levelname)s] %(message)s')
+        self.__file_formatter = logging.Formatter('%(asctime)s %(name)s: [%(levelname)s] %(message)s')
         self.__handlers = []
 
     def __add_handler(self, handler):
@@ -71,7 +73,7 @@ class Log:
             if exclusive:
                 self.remove_all_handlers()
             handler = logging.FileHandler(os.path.expanduser(fname))
-            handler.setFormatter(self.__formatter)
+            handler.setFormatter(self.__file_formatter)
             self.__add_handler(handler)
 
     def log_to_syslog(self, exclusive=False):
@@ -84,7 +86,7 @@ class Log:
             self.remove_all_handlers()
         handler = logging.handlers.SysLogHandler(address='/dev/log',\
             facility=logging.handlers.SysLogHandler.LOG_SYSLOG)
-        handler.setFormatter(self.__formatter)
+        handler.setFormatter(self.__syslog_formatter)
         self.__add_handler(handler)
 
     def debug(self, msg):
@@ -635,6 +637,7 @@ class Worker:
         self.__config_file = '~/.imapbackuprc'
         self.__list_folders = False
         self.__account = 'all'
+        self.__threads = 1
 
         self.__parse_cmdl()
         self.__init_config()
@@ -646,6 +649,7 @@ class Worker:
         print('     -a --account         select an account (def: all)')
         print('     -c --config-file     use another config file (def: ~/.imapbackuprc)')
         print('     -l --list-folders    list folders in selected accounts')
+        print('        --threads         number of account handling threads (def: 1)')
 
     def __parse_cmdl(self):
         """
@@ -653,7 +657,7 @@ class Worker:
         try:
             opts, args = getopt.getopt(sys.argv[1:], \
                 "ha:c:l", \
-                ["help", "account=", "config-file=", "list-folders"])
+                ["help", "account=", "config-file=", "list-folders", "threads="])
         except getopt.GetoptError, e:
             print('error: %s' % e)
             self.__show_syntax()
@@ -668,6 +672,8 @@ class Worker:
                 self.__config_file = arg
             elif opt in ("-l", "--list-folders"):
                 self.__list_folders = True
+            elif opt in ("--threads"):
+                self.__threads = int(arg)
 
     def __init_config(self):
         """Initialize the configuration.
@@ -726,8 +732,32 @@ class Worker:
             Log().error('error: ' % e)
 
     def backup_all(self):
-        for account in self.__config.get_accounts():
-            self.backup(account)
+        thr_max = self.__threads
+        accounts = self.__config.get_accounts()
+        if len(accounts) < thr_max:
+            thr_max = len(accounts)
+
+        # thread class
+        class BackupThread(threading.Thread):
+            def __init__(self, worker, account_list):
+                threading.Thread.__init__(self)
+                self.__worker = worker
+                self.__account_list = account_list
+            def run(self):
+                for account in self.__account_list:
+                    self.__worker.backup(account)
+
+        # start threads
+        btlist = []
+        for thr_idx in range(thr_max):
+            bt = BackupThread(self, accounts[thr_idx::thr_max])
+            bt.start()
+            btlist.append(bt)
+
+        # wait for all threads to finish
+        for bt in btlist:
+            bt.join()
+    
 
     def backup(self, account):
         try:
