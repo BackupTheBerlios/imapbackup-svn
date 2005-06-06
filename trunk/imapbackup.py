@@ -31,6 +31,7 @@ import ConfigParser
 import logging, logging.handlers
 import getopt
 import threading
+import shutil
 
 message_deliver_count = 0
 
@@ -62,6 +63,18 @@ class Log:
         for h in self.__handlers:
             self.__logger.removeHandler(h)
         self.__handlers = []
+
+    def log_to_stderr(self, exclusive=False):
+        """Make the logger to log to stderr.
+
+        If the parameter 'exclusive' is True, than all other log handlers
+        are removed.
+        """
+        if exclusive:
+            self.remove_all_handlers()
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(self.__file_formatter)
+        self.__add_handler(handler)
 
     def log_to_file(self, fname, exclusive=False):
         """Make the logger to log to a file.
@@ -115,15 +128,6 @@ class Utils:
         return self
 
     def __init__(self):
-        self.__regex_from = re.compile('^from: .*$', re.IGNORECASE)
-        self.__regex_to = re.compile('^to: .*$', re.IGNORECASE)
-        self.__regex_subject = re.compile('^subject: .*$', re.IGNORECASE)
-        self.__regex_msgid = re.compile('^message-id: .*$', re.IGNORECASE)
-        self.__regex_date = re.compile('^date: .*$', re.IGNORECASE)
-        self.__regex_received = re.compile('^received: .*$', re.IGNORECASE)
-        self.__regex_xorgto = re.compile('^x-original-to: .*$', re.IGNORECASE)
-        self.__regex_delivto = re.compile('^delivered-to: .*$', re.IGNORECASE)
-        self.__regex_returnpath = re.compile('^return-path: .*$', re.IGNORECASE)
         self.__regex_msg_seen = re.compile('.*\Seen.*')
         self.__regex_msg_answerd = re.compile('.*\Answered.*')
         self.__regex_msg_flagged = re.compile('.*\Flagged.*')
@@ -139,24 +143,7 @@ class Utils:
             if len(line) == 0:
                 # only scan the header
                 break
-            if self.__regex_from.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_to.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_subject.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_msgid.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_date.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_received.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_xorgto.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_delivto.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
-            elif self.__regex_returnpath.search(line):
-                hd_obj.update(self.__regex_whitespaces.sub('', line))
+            hd_obj.update(self.__regex_whitespaces.sub('', line))
         return hd_obj
 
     def gen_filename(self):
@@ -297,7 +284,7 @@ class Configuration:
         try:
             return self.__cparser.get(account, self.__LOGGER)
         except:
-            return 'syslog'
+            return 'stderr'
 
     def get_log_file(self, account):
         """Return file to log to.
@@ -433,6 +420,7 @@ class Maildir:
     def __init__(self, basedir=None, create=False):
         self.__basedir=''
         self.__sha1_header_cache={}
+        self.__touched_folders=[]
         if basedir:
             self.open(basedir, create)
 
@@ -470,6 +458,9 @@ class Maildir:
         return False
 
 
+    def touch_folder(self, folder):
+        self.__touched_folders.append(folder)
+
     def create_folder(self, folder):
         """Create a new maildir folder.
 
@@ -478,6 +469,7 @@ class Maildir:
         if not folder.startswith(self.__basedir):
             folder = os.path.join(self.__basedir, folder)
 
+        self.touch_folder(folder)
         return self.__create_folder(folder)
 
 
@@ -515,16 +507,28 @@ class Maildir:
 
         if self.__sha1_header_cache.has_key(folder):
             if self.__sha1_header_cache[folder].has_key(hd):
-                del self.__sha1_header_cache[folder][hd]
+                if len(self.__sha1_header_cache[folder][hd]) <= 1:
+                    # remove complete hash handle
+                    del self.__sha1_header_cache[folder][hd]
+                else:
+                    # remove an entry from hash handle
+                    self.__sha1_header_cache[folder][hd] = self.__sha1_header_cache[folder][hd][1::]
 
-    def remove_leftover_messages(self):
-        """Remove files, which are leftover from updating.
+    def remove_leftover(self):
+        """Remove files or directories, which are leftover from updating.
         """
+        # remove all leftover messages
         for i in self.__sha1_header_cache.keys():
             for j in self.__sha1_header_cache[i].keys():
                 for f in self.__sha1_header_cache[i][j]:
                     os.remove(os.path.join(i, f))
                     Log().debug('remove message "%s"' % os.path.join(i, f))
+        
+        # remove all leftover directories
+        def f(path): return self.__touched_folders.count(path) == 0
+        for folder in filter(f, self.__sha1_header_cache.keys()):
+            shutil.rmtree(folder)
+            Log().debug('remove folder "%s"' % folder)
 
     def __is_maildir_folder(self, folder):
         """Return True if the folder is a maildir folder.
@@ -545,7 +549,7 @@ class Maildir:
         if not folder.startswith(self.__basedir):
             folder = os.path.join(self.__basedir, folder)
 
-        flist = [folder]
+        flist = []
         for fo in os.listdir(folder):
             if os.path.isdir(os.path.join(folder,fo)) and self.__is_maildir_folder(fo):
                 flist.append(os.path.join(folder,fo))
@@ -690,11 +694,13 @@ class Worker:
         """
         Log().set_log_level(self.__config.get_log_level(account))
         Log().remove_all_handlers()
-        for logger in self.__config.get_logger(account).split(', '):
+        for logger in self.__config.get_logger(account).replace(' ', '').split(','):
             if str.lower(logger) == 'syslog':
                 Log().log_to_syslog()
             elif str.lower(logger) == 'file':
                 Log().log_to_file(self.__config.get_log_file(account))
+            elif str.lower(logger) == 'stderr':
+                Log().log_to_stderr()
 
     def run(self):
         if self.__list_folders:
@@ -770,7 +776,7 @@ class Worker:
             
             fo_filter = self.__config.get_imapfilter(account)
             for folder in imap.get_folders(fo_filter):
-                # create folder if needed
+                # create and touch folder if needed
                 cf = maildir.create_folder(folder)
             
                 mlist = imap.get_messages(folder)
@@ -784,11 +790,11 @@ class Worker:
                     else:
                         maildir.remove_from_index(folder, hhd)
 
-            maildir.remove_leftover_messages()
+            maildir.remove_leftover()
         except IMAPException, e:
-            Log().error('imap error: ' % e)
+            Log().error('imap error: %s' % str(e))
         except Exception, e:
-            Log().error('error: ' % e)
+            Log().error('error: %s' % str(e))
 
 
 # ----------------------------------------------------------------------------
