@@ -4,4 +4,3 @@
   - a lot more docu ;)
   - maildir write should move existing file from 'new' to 'cur' and
     fix flags in the filename
-  - remove maildir directories, which are deleted in the imap box
