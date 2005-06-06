@@ -19,7 +19,7 @@
 #    - imapport       imap port (default: 993)
 #    - imapssl        use imap ssl (default: true)
 #    - imapfilter     filter imap folders (default: no filtering)
-#    - logger         set logger (default: syslog)
+#    - logger         set logger (default: stderr)
 #    - logfile        file to log to, if filelogger is select
 #    - loglevel       set logging level (default: error)
 #
@@ -47,7 +47,6 @@ imapfilter:     ^INBOX
 
 maildir:        ~/Maildir_1
 
-logger:         syslog
 loglevel:       warn
 
 
@@ -62,7 +61,7 @@ imapfilter:     outbox
 
 maildir:        ~/Maildir_2
 
-logger:         file, syslog
+logger:         file, syslog, stderr
 logfile:        ~/.imapbackup.log
 loglevel:       debug
 
